@@ -1,17 +1,22 @@
-"""Space Agent CLI — generate systems, render planets, run turns."""
+"""Space Agent CLI — generate systems, manage saves, run turns."""
 
 from __future__ import annotations
 
 import argparse
 import random
 import sys
+from pathlib import Path
 
 from src.simulation.planet import generate_system
 from src.agents.renderer import render_star, render_planet_table, render_planet_detail
+from src.game.state import (
+    new_game, load_game, save_game, list_saves,
+    read_current, resolve_save_dir,
+)
 
 
 def cmd_generate(args):
-    """Generate a planetary system."""
+    """Generate a planetary system (standalone, no save)."""
     rng = random.Random(args.seed)
     star, planets = generate_system(rng, star_name=args.star, num_planets=args.planets)
 
@@ -27,21 +32,105 @@ def cmd_generate(args):
             print(render_planet_detail(p))
 
 
+def cmd_newgame(args):
+    """Create a new game save."""
+    state = new_game(
+        save_name=args.name,
+        seed=args.seed,
+        star_name=args.star,
+        num_planets=args.planets,
+        credits=args.credits,
+        save_dir=args.save_dir,
+    )
+    star = state.get_star()
+    print(f"Created save: {state.save_name}")
+    print(f"Star: {star.name} ({star.spectral_type}-type, {star.luminosity_solar:.2f} L☉)")
+    print(f"Planets: {len(state.planets)}")
+    print(f"Credits: {state.credits:.0f}")
+    print(f"Seed: {state.seed}")
+    print(f"Save file: {args.save_dir}/{state.save_name}.json")
+    print(f"Turn: {state.turn}")
+
+
+def cmd_status(args):
+    """Show current game status."""
+    save_dir = resolve_save_dir(args.save_dir)
+    current = read_current(save_dir)
+    if current is None:
+        print("No current save. Use 'newgame' to create one.")
+        return
+
+    state = load_game(save_dir, current)
+    star = state.get_star()
+    planets = state.get_planets()
+
+    print(f"# {state.save_name} — Turn {state.turn}")
+    print(f"Last played: {state.last_played[:10]}")
+    print(f"Credits: {state.credits:.0f}")
+    print(f"Colonies: {len(state.colonies)}")
+    print(f"Active operations: {len([o for o in state.operations if o.get('status') == 'in_progress'])}")
+    print()
+    print(f"## {star.name} ({star.spectral_type}-type)")
+    print(f"Habitable zone: {star.habitable_zone_inner_au:.2f}–{star.habitable_zone_outer_au:.2f} AU")
+    print()
+    print(render_planet_table(planets))
+
+
+def cmd_saves(args):
+    """List all save files."""
+    save_dir = resolve_save_dir(args.save_dir)
+    current = read_current(save_dir)
+    saves = list_saves(save_dir)
+
+    if not saves:
+        print("No saves found.")
+        return
+
+    print(f"{'Current':>7}  {'Name':<20} {'Turn':>4}  {'Colonies':>8}  {'Last Played'}")
+    print("-" * 70)
+    for s in saves:
+        marker = "  →" if s["name"] == current else ""
+        print(f"{marker:>7}  {s['name']:<20} {str(s['turn']):>4}  {str(s['colonies']):>8}  {str(s.get('last_played', '?'))[:10]}")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Space Agent — Physics-driven space colonization simulator"
+        description="Space Agent — Physics-driven space colonization simulator",
+        prog="python -m src",
     )
+    parser.add_argument("--save-dir", default="saves", help="Save directory (default: saves/)")
     sub = parser.add_subparsers(dest="command")
 
-    gen = sub.add_parser("generate", help="Generate a planetary system")
+    # generate
+    gen = sub.add_parser("generate", help="Generate a planetary system (no save)")
     gen.add_argument("--star", default="Kepler-442", help="Star name")
     gen.add_argument("--planets", type=int, default=5, help="Number of planets")
     gen.add_argument("--seed", type=int, default=42, help="Random seed")
-    gen.add_argument("--detail", action="store_true", help="Show full planet details")
+    gen.add_argument("--detail", action="store_true", help="Full planet details")
+
+    # newgame
+    ng = sub.add_parser("newgame", help="Create a new game")
+    ng.add_argument("--name", default="game_001", help="Save name")
+    ng.add_argument("--star", default="Kepler-442", help="Star name")
+    ng.add_argument("--planets", type=int, default=5, help="Number of planets")
+    ng.add_argument("--seed", type=int, default=None, help="Random seed (random if omitted)")
+    ng.add_argument("--credits", type=float, default=5000, help="Starting credits")
+
+    # status
+    sub.add_parser("status", help="Show current game status")
+
+    # saves
+    sub.add_parser("saves", help="List all saves")
 
     args = parser.parse_args()
     if args.command == "generate":
         cmd_generate(args)
+    elif args.command == "newgame":
+        cmd_newgame(args)
+    elif args.command == "status":
+        cmd_status(args)
+    elif args.command == "saves":
+        cmd_saves(args)
     else:
         parser.print_help()
 

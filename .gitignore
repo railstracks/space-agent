@@ -8,3 +8,5 @@ build/
 .venv/
 *.sqlite3
 state/
+state/
+saves/
