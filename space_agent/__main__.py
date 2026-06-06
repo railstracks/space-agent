@@ -7,9 +7,9 @@ import random
 import sys
 from pathlib import Path
 
-from src.simulation.planet import generate_system
-from src.agents.renderer import render_star, render_planet_table, render_planet_detail
-from src.game.state import (
+from space_agent.simulation.planet import generate_system
+from space_agent.agents.renderer import render_star, render_planet_table, render_planet_detail
+from space_agent.game.state import (
     new_game, load_game, save_game, list_saves,
     read_current, resolve_save_dir,
 )
@@ -96,7 +96,7 @@ def cmd_saves(args):
 def main():
     parser = argparse.ArgumentParser(
         description="Space Agent — Physics-driven space colonization simulator",
-        prog="python -m src",
+        prog="python -m space_agent",
     )
     parser.add_argument("--save-dir", default="saves", help="Save directory (default: saves/)")
     sub = parser.add_subparsers(dest="command")

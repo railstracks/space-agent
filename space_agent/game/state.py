@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
 
-from src.simulation.planet import Planet, Star, Atmosphere, generate_system
+from space_agent.simulation.planet import Planet, Star, Atmosphere, generate_system
 
 
 # ── data structures ────────────────────────────────────────────────
