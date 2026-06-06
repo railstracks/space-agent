@@ -9,6 +9,7 @@ from pathlib import Path
 
 from space_agent.simulation.planet import generate_system
 from space_agent.agents.renderer import render_star, render_planet_table, render_planet_detail
+from space_agent.agents.describe import describe
 from space_agent.game.state import (
     new_game, load_game, save_game, list_saves,
     read_current, resolve_save_dir,
@@ -76,6 +77,38 @@ def cmd_status(args):
     print(render_planet_table(planets))
 
 
+def cmd_describe(args):
+    """Narrative description of a planet."""
+    save_dir = resolve_save_dir(args.save_dir)
+    current = read_current(save_dir)
+    if current is None:
+        print("No current save. Use 'newgame' to create one.")
+        return
+
+    state = load_game(save_dir, current)
+    planets = state.get_planets()
+
+    target = args.planet
+    planet = None
+    for p in planets:
+        if p.designation == target or p.name == target or p.designation.endswith(target):
+            planet = p
+            break
+
+    if planet is None:
+        print(f"Planet not found: {target}")
+        print(f"Available: {', '.join(p.designation for p in planets)}")
+        return
+
+    print(f"# {planet.designation} — {planet.name}")
+    print()
+    print(render_planet_detail(planet))
+    print()
+    print("## Narrative")
+    print()
+    print(describe(planet))
+
+
 def cmd_saves(args):
     """List all save files."""
     save_dir = resolve_save_dir(args.save_dir)
@@ -119,6 +152,10 @@ def main():
     # status
     sub.add_parser("status", help="Show current game status")
 
+    # describe
+    desc = sub.add_parser("describe", help="Narrative description of a planet")
+    desc.add_argument("planet", help="Planet designation (e.g. Kepler-442-III)")
+
     # saves
     sub.add_parser("saves", help="List all saves")
 
@@ -129,6 +166,8 @@ def main():
         cmd_newgame(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "describe":
+        cmd_describe(args)
     elif args.command == "saves":
         cmd_saves(args)
     else:
