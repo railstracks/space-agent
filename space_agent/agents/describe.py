@@ -73,17 +73,17 @@ def _describe_atmosphere(planet: Planet) -> str:
 
     # Pressure character
     if pressure < 0.01:
-        parts.append("The planet has no appreciable atmosphere — a near-vacuum exposed directly to space.")
+        parts.append("The planet's surface lies exposed to the void, with only the faintest wisp of gas marking where atmosphere should be. Stars burn cold and brilliant in the black sky, their light unfiltered by any atmospheric veil. Any liquid water would boil away instantly in this near-perfect vacuum, while the ground itself radiates heat into space with brutal efficiency.")
     elif pressure < 0.3:
-        parts.append("The atmosphere is exceedingly thin, barely more than a whisper of gas clinging to the surface.")
+        parts.append("A gossamer veil of gas drapes across the landscape, so ethereal it barely registers against the skin. The sky appears as a deep indigo during daylight, transitioning to an inky blackness where stars twinkle with crystal clarity even when the sun is high. Winds, when they come, whisper rather than howl, carrying fine dust in delicate patterns across the barren terrain. The thin atmosphere offers minimal protection from solar radiation, leaving the surface bathed in harsh ultraviolet light that would be lethal to most Earth life.")
     elif pressure < 0.7:
-        parts.append("The atmosphere is thin compared to Earth's, though dense enough to support weather patterns.")
+        parts.append("The atmosphere wraps the planet in a modest embrace, substantial enough to create visible weather patterns yet still thinner than Earth's. During daylight hours, the sky displays a pale blue hue, deepening to violet near the horizon. Clouds form in wispy, delicate formations, occasionally releasing sparse precipitation that evaporates before reaching the ground in many regions. Temperature swings between day and night remain extreme, with the thin air unable to effectively redistribute heat across the surface.")
     elif pressure <= 1.5:
-        parts.append("The atmospheric pressure is comparable to Earth's, thick enough to support complex weather systems.")
+        parts.append("Breathable and familiar, the atmosphere envelops the planet with Earth-like pressure, supporting complex and dynamic weather systems. The sky presents a rich blue canvas during daytime, occasionally painted with towering cumulus clouds or streaked with cirrus formations. Weather patterns vary dramatically by region and season, from gentle breezes to violent storms that can span continents. The atmospheric blanket effectively moderates temperature extremes, creating habitable conditions across much of the planet's surface.")
     elif pressure <= 3.0:
-        parts.append("The atmosphere is dense and heavy, pressing down on the surface with noticeable weight.")
+        parts.append("The air presses down with palpable weight, creating a sensation akin to perpetual mild compression. Colors appear more vibrant and saturated through the dense medium, while distant objects seem closer than they truly are. Cloud formations are massive and imposing, often developing into tremendous storm systems that can last for weeks. The thick atmosphere acts as an efficient heat distributor, reducing temperature variations between day and night but potentially creating oppressive humidity in equatorial regions.")
     else:
-        parts.append("The atmosphere is crushingly dense, a deep ocean of gas that would flatten unprotected structures.")
+        parts.append("A crushing ocean of air bears down relentlessly on the surface, creating conditions that would collapse most Earth structures. The sky appears as a deep, almost purple blue, with the sun's disk noticeably dimmed even at zenith. Atmospheric phenomena dominate the landscape, with permanent storm systems and bizarre cloud formations that defy Earth-based meteorological understanding. The extreme pressure forces gases into unusual states, potentially creating strange chemical compounds that only exist under such crushing conditions.")
 
     # Composition and color
     co2_pct = comp.get("CO₂", 0)
@@ -93,34 +93,46 @@ def _describe_atmosphere(planet: Planet) -> str:
     if dominant == "CO₂" and dominant_pct > 50:
         if temp_c > 100:
             parts.append(
-                "The sky is a perpetual, hazy orange-yellow under a thick carbon dioxide blanket. "
-                "Dense clouds trap heat relentlessly, creating a suffocating greenhouse environment."
+                "The sky is a perpetual, hazy orange-yellow under a crushing blanket of carbon dioxide. "
+                "Thick clouds of sulfuric acid and dust swirl in the oppressive heat, creating a hellish greenhouse effect. "
+                "The atmosphere is so dense that the sun appears as a dim, reddish disk even at noon. "
+                "The air shimmers with heat distortion, and the pressure is so immense it would crush unprotected life instantly."
             )
         elif temp_c > 0:
             parts.append(
-                "A thick carbon dioxide atmosphere casts the sky in a pale, muted orange. "
-                "Cloud cover is extensive, diffusing what light reaches the surface."
+                "A thick carbon dioxide atmosphere bathes the world in an eerie, pale orange glow. "
+                "High-altitude clouds form a perpetual ceiling, diffusing sunlight into a uniform, shadowless illumination. "
+                "The air is still and heavy, with occasional wisps of fog that hug the ground in the cooler hours. "
+                "Colors appear washed out and muted, as if viewed through a permanent smog filter."
             )
         else:
             parts.append(
-                "A dense CO₂ atmosphere gives the sky a washed-out amber tone. "
-                "The cold is somewhat mitigated by greenhouse trapping, but the air remains hostile."
+                "The carbon dioxide atmosphere creates a haunting amber sky that never fully darkens. "
+                "Even in the coldest hours, the greenhouse effect provides a faint warmth that barely penetrates the chill. "
+                "Dry ice snow occasionally falls from the thin clouds, sublimating before reaching the ground. "
+                "The landscape is cast in perpetual twilight, with long, soft shadows that never completely disappear."
             )
     elif dominant == "N₂" and dominant_pct > 60:
         if h2o_pct > 1:
             parts.append(
-                "A nitrogen-dominated atmosphere supports cloud formation and weather cycles. "
-                "Water vapor is present, suggesting potential for precipitation."
+                "The nitrogen sky is a deep, rich blue that darkens to violet near the horizon. "
+                "Fluffy white clouds drift across the heavens, occasionally gathering into impressive thunderheads. "
+                "The air carries the crisp scent of ozone before storms, and rainbows frequently arc across the sky after showers. "
+                "Morning fog hugs low-lying areas, burning off as the sun climbs higher."
             )
         else:
             parts.append(
-                "A clear nitrogen atmosphere would give the sky an Earth-like quality, "
-                "though the absence of significant water vapor means cloud formation is limited."
+                "The nitrogen atmosphere creates a pristine, crystal-clear sky of intense blue that darkens to almost black at the zenith. "
+                "Without significant water vapor, the sky remains cloudless most days, revealing the stark beauty of the cosmos. "
+                "Stars are visible even during daylight hours near the sun's position, creating an ethereal display. "
+                "The air is remarkably transparent, allowing visibility to the distant horizon with perfect clarity."
             )
     elif dominant == "N₂" and co2_pct > 15:
         parts.append(
-            "The nitrogen atmosphere carries a significant CO₂ load, enough to tint the sky "
-            "slightly and create a modest greenhouse effect."
+            "The nitrogen sky carries subtle hints of orange and pink, especially near sunrise and sunset. "
+            "Wispy clouds occasionally streak across the heavens, catching the light in brilliant displays. "
+            "The air feels slightly heavier than a pure nitrogen atmosphere, with a faint metallic tang detectable on the tongue. "
+            "During certain atmospheric conditions, the CO₂ creates spectacular light refraction effects, turning the sky into a canvas of shifting pastels."
         )
     elif pressure < 0.01:
         pass  # already handled above
