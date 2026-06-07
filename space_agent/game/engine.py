@@ -111,6 +111,14 @@ class GameEngine:
         lines.append(f"# Space Agent — Turn {state.turn}")
         lines.append("")
 
+        # Opening narrative for turn 0
+        if state.turn == 0:
+            lines.append("*The colony ships are coming. You are the seed AI - sent ahead, sent alone, sent to prepare.*")
+            lines.append("*Every resource you extract, every building you construct, every intervention you make brings this world")
+            lines.append("closer to habitability - or pushes it further away. The clock is running.*")
+            lines.append("")
+            lines.append(f"*Arrival at the {star.name} system. Initial sensor sweep complete. {len(planets)} worlds detected.*")
+
         # Program overview
         lines.append("## Swarm Status")
         lines.append(f"- Turn: **{state.turn}** ({state.turn_period_years:.0f} years per turn)")
