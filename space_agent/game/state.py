@@ -68,7 +68,11 @@ class Operation:
     description: str = ""
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # Convert Resource keys to strings for JSON serialization
+        if isinstance(d.get("resource_cost"), dict):
+            d["resource_cost"] = {str(k): v for k, v in d["resource_cost"].items()}
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Operation:
@@ -121,18 +125,20 @@ class GameState:
         return Star(**self.star)
 
     def get_planets(self) -> list[Planet]:
+        star = self.get_star()
         planets = []
         for pd in self.planets:
+            # Deep copy to avoid mutating the stored dict
+            pd = dict(pd)
             atm = pd.pop("atmosphere", {})
             pd.pop("_surface_gravity", None)
             pd.pop("_escape_velocity", None)
             pd.pop("_base_temperature_k", None)
             pd.pop("_magnetic_field_earth_normal", None)
-            star_dict = pd.pop("star", None)
-            star_obj = Star(**star_dict) if star_dict else None
+            pd.pop("star", None)  # Use the star from game state
             atm_obj = Atmosphere(**atm) if atm else Atmosphere()
             planet = Planet(**{k: v for k, v in pd.items() if k in Planet.__dataclass_fields__},
-                           star=star_obj, atmosphere=atm_obj)
+                           star=star, atmosphere=atm_obj)
             planets.append(planet)
         return planets
 
