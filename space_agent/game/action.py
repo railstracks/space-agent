@@ -411,19 +411,28 @@ def _extract_planet(text: str) -> str:
     """Extract a planet designation from text.
 
     Matches patterns like:
-    - K442-III, K442-III, Kepler-442-III
+    - Kepler-442-III (full designation)
+    - K442-III (abbreviated)
+    - K442-III, k442-iii (case-insensitive)
     - "planet 3", "the third planet"
     - Any word starting with capital K followed by digits
-    """
-    # Match K###-X pattern
-    match = re.search(r"[Kk]\d+-[IVXivx]+", text)
-    if match:
-        return match.group(0).upper()
 
-    # Match Kepler-###-X pattern
-    match = re.search(r"Kepler-\d+-[IVXivx]+", text, re.IGNORECASE)
+    Returns the FULL designation format (e.g. "Kepler-442-III")
+    if a Kepler prefix can be inferred, otherwise the matched pattern.
+    """
+    # Match Kepler-###-X pattern (full designation) — highest priority
+    match = re.search(r"Kepler-(\d+)-([IVXivx]+)", text, re.IGNORECASE)
     if match:
-        return match.group(0)
+        num = match.group(1)
+        roman = match.group(2).upper()
+        return f"Kepler-{num}-{roman}"
+
+    # Match K###-X pattern (abbreviated) — normalize to full format
+    match = re.search(r"[Kk](\d+)-([IVXivx]+)", text)
+    if match:
+        num = match.group(1)
+        roman = match.group(2).upper()
+        return f"Kepler-{num}-{roman}"
 
     # Match "planet N" or "the Nth planet"
     match = re.search(r"planet\s+(\d+|[IVXivx]+)", text, re.IGNORECASE)

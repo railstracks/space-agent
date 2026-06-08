@@ -71,11 +71,13 @@ def calculate_energy(
         if b.get("status") not in ("active", "idle"):
             continue
         kind = b.get("kind", "")
-        if kind == "solar_array" and b.get("status") == "active":
+        # Passive energy producers work regardless of active/idle status
+        # (they have no recipe to assign, so status is cosmetic)
+        if kind == "solar_array":
             solar_count += 1
-        elif kind == "nuclear_reactor" and b.get("status") == "active":
+        elif kind == "nuclear_reactor":
             nuclear_count += 1
-        elif kind == "geothermal_tap" and b.get("status") == "active":
+        elif kind == "geothermal_tap":
             geothermal_count += 1
 
         # Buildings that are running a recipe consume energy (both active and idle run recipes)
@@ -191,8 +193,14 @@ def run_production(
             turns_left = b.get("turns_remaining", 1) - 1
             b["turns_remaining"] = max(0, turns_left)
             if turns_left <= 0:
-                b["status"] = "idle"
-                report.messages.append(f"{b.get('id', '?')} construction complete. Now idle — assign a recipe.")
+                # Construction complete — auto-activate passive buildings
+                passive_kinds = {"solar_array", "nuclear_reactor", "geothermal_tap", "research_lab", "terraform_engine"}
+                if b.get("kind", "") in passive_kinds:
+                    b["status"] = "active"
+                    report.messages.append(f"{b.get('id', '?')} construction complete. Now active (passive building).")
+                else:
+                    b["status"] = "idle"
+                    report.messages.append(f"{b.get('id', '?')} construction complete. Now idle — assign a recipe.")
             else:
                 report.messages.append(
                     f"{b.get('id', '?')} under construction ({turns_left} turns remaining)."
