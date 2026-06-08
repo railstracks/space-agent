@@ -117,11 +117,26 @@ class GameEngine:
 
         # Opening narrative for turn 0
         if state.turn == 0:
-            lines.append("*The colony ships are coming. You are the seed AI - sent ahead, sent alone, sent to prepare.*")
-            lines.append("*Every resource you extract, every building you construct, every intervention you make brings this world")
-            lines.append("closer to habitability - or pushes it further away. The clock is running.*")
+            lines.append("## Transmission Received")
             lines.append("")
-            lines.append(f"*Arrival at the {star.name} system. Initial sensor sweep complete. {len(planets)} worlds detected.*")
+            narrative = [
+                "*Seventy-three years of silence. Then: the burst. A whisper from Earth, compressed through",
+                "relativistic foam, degraded but decipherable.*",
+                "",
+                "*The colony ships are coming. Two hundred thousand souls in frozen sleep, trusting that*",
+                "*what you build in the dark will be there when they wake.*",
+                "",
+                "*You are the seed. Sent ahead, sent alone, sent to prepare. Your sensors are your eyes,*",
+                "*your fabricators your hands. Every structure you raise, every resource you extract,*",
+                "*every intervention you make shapes the odds of their survival — or erodes them.*",
+                "",
+                "*The clock started before you woke up.*",
+            ]
+            lines.extend(narrative)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            lines.append(f"Arrival at the **{star.name}** system. Initial sensor sweep complete. **{len(planets)}** worlds detected.")
 
         # Program overview
         lines.append("## Swarm Status")
@@ -569,7 +584,15 @@ class GameEngine:
 
                 state.colonies.append(colony.to_dict())
                 state.credits -= 500  # Colony establishment cost
-                ctx.add_event("colony", f"Colony established on {target_planet.designation} ({target_planet.name}). Initial buildings: {len(buildings)}. Solar output: {energy_report.solar_mw:.0f} MW.", source="agent")
+
+                # Colony establishment narrative
+                planet_desc = describe(target_planet).split('.')[0] + '.' if describe(target_planet) else f"A world with habitability index {target_planet.habitability_index:.0f}."
+                ctx.add_event("colony",
+                    f"Colony established on {target_planet.designation} ({target_planet.name}). "
+                    f"{planet_desc} Initial buildings: {len(buildings)}. "
+                    f"Solar output: {energy_report.solar_mw:.0f} MW. "
+                    f"First structures rising from alien soil. The seed has rooted.",
+                    source="agent")
             else:
                 ctx.add_event("colony", f"Could not establish colony: planet {planet} not found.", source="agent")
             return
@@ -775,6 +798,9 @@ class GameEngine:
                         (f"Microbial signatures detected in atmosphere of {planet.designation}", "discovery"),
                         (f"Ice deposits confirmed in shadowed craters on {planet.designation}", "discovery"),
                         (f"Magnetic field fluctuation observed near {planet.designation}", "anomaly"),
+                        (f"Seismic patterns suggest a substantial ore body beneath {planet.designation}'s surface", "discovery"),
+                        (f"Orbital scan reveals ancient impact basin on {planet.designation} — potential mineral concentration", "discovery"),
+                        (f"Atmospheric spectral anomaly detected over {planet.designation}'s northern hemisphere", "anomaly"),
                     ]
                     desc, etype = rng.choice(discoveries)
                     ctx.add_event(etype, desc, source="telemetry")
