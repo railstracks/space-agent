@@ -27,32 +27,76 @@ from space_agent.simulation.planet import Planet, Star, Atmosphere, generate_sys
 
 @dataclass
 class Colony:
-    """A colony on a planet."""
+    """A colony on a planet.
+
+    Each colony tracks its own buildings, stockpile, and energy.
+    Buildings are actual Building objects with recipes and status.
+    Energy is computed from installed buildings (solar arrays, nuclear
+    reactors, geothermal taps) and the planet's physical properties.
+    """
     name: str
     planet_designation: str  # references Planet.designation
     population: int = 0
     morale: str = "HOPEFUL"  # HOPEFUL, CAUTIOUS, OPTIMISTIC, DESPERATE, THRIVING
     founded_turn: int = 0
 
-    # Resource stockpiles at colony
+    # Per-colony stockpile (resource_name → amount)
+    stockpile: dict[str, float] = field(default_factory=dict)
+
+    # Buildings in this colony (list of Building dicts)
+    buildings: list[dict] = field(default_factory=list)
+
+    # Energy tracking (computed each turn from buildings)
+    energy_production_mw: float = 0.0
+    energy_consumption_mw: float = 0.0
+    energy_net_mw: float = 0.0
+
+    # Legacy fields for backward compatibility during migration
     water: float = 0.0
     metals: float = 0.0
     energy: float = 0.0
     organics: float = 0.0
     rare_earths: float = 0.0
-
-    # Infrastructure
     habitat_modules: int = 0
     atmospheric_processors: int = 0
     mining_rigs: int = 0
     research_labs: int = 0
+
+    def get_building(self, building_id: str) -> Optional[dict]:
+        """Find a building by ID."""
+        for b in self.buildings:
+            if b.get("id") == building_id:
+                return b
+        return None
+
+    def count_buildings(self, kind: str) -> int:
+        """Count active buildings of a given type."""
+        return sum(
+            1 for b in self.buildings
+            if b.get("kind") == kind and b.get("status") == "active"
+        )
+
+    def add_building(self, building: dict) -> None:
+        """Add a building to this colony."""
+        self.buildings.append(building)
+        # Update legacy counters
+        kind = building.get("kind", "")
+        if kind == "mine":
+            self.mining_rigs += 1
+        elif kind == "solar_array":
+            self.habitat_modules += 1  # rough legacy proxy
+        elif kind == "atmospheric_extractor":
+            self.atmospheric_processors += 1
+        elif kind == "research_lab":
+            self.research_labs += 1
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> Colony:
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        return cls(**known)
 
 
 @dataclass

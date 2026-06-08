@@ -87,6 +87,8 @@ class ActionDocument:
 
 # ── Parsing ────────────────────────────────────────────────────────
 
+from space_agent.simulation.resources import RECIPES as RECIPES_REGISTRY
+
 # Building names that can appear in actions
 BUILDING_KEYWORDS = {
     "mine": "mine",
@@ -289,16 +291,31 @@ def _parse_operation_line(line: str, index: int) -> Optional[Action]:
         )
 
     # Assign actions (assign recipe to building)
-    if "assign" in line_lower or "set" in line_lower:
-        for keyword, recipe_name in BUILDING_KEYWORDS.items():
-            if keyword in line_lower:
-                return Action(
-                    action_type=ActionType.ASSIGN,
-                    target="",
-                    params={"building_type": recipe_name},
-                    priority=index,
-                    notes=line,
-                )
+    if "assign" in line_lower or "set" in line_lower or "configure" in line_lower:
+        # Try to match known recipe names from RECIPES first
+        recipe_name = ""
+        for rkey in RECIPES_REGISTRY:
+            if rkey in line_lower:
+                recipe_name = rkey
+                break
+
+        # If no recipe found, try extracting after 'recipe' keyword
+        if not recipe_name:
+            recipe_match = re.search(r"recipe\s+(\w+(?:_\w+)*)", line_lower)
+            if recipe_match:
+                recipe_name = recipe_match.group(1)
+
+        # Extract building ID (e.g., mine_02)
+        building_id = _extract_building_id(line)
+        planet = _extract_planet(line)
+
+        return Action(
+            action_type=ActionType.ASSIGN,
+            target=building_id,
+            params={"recipe": recipe_name, "planet": planet},
+            priority=index,
+            notes=line,
+        )
 
     # Terraform actions
     for keyword, intervention in TERRAFORM_KEYWORDS.items():
@@ -413,4 +430,17 @@ def _extract_planet(text: str) -> str:
     if match:
         return match.group(1)
 
+    return ""
+
+
+def _extract_building_id(text: str) -> str:
+    """Extract a building ID from text.
+
+    Matches patterns like:
+    - mine_01, smelter_02, fabricator_01
+    - "building mine_01"
+    """
+    match = re.search(r"(\w+_\d{2})", text)
+    if match:
+        return match.group(1)
     return ""

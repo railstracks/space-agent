@@ -23,6 +23,10 @@ from space_agent.game.action import (
     Action, ActionDocument, ActionType,
     parse_action_document,
 )
+from space_agent.game.colony_sim import (
+    calculate_energy, run_production, initial_stockpile, initial_buildings,
+    resolve_colony_turn,
+)
 from space_agent.game.entity import Entity, EntityStatus
 from space_agent.game.entities import BuildingEntity, DroneEntity
 from space_agent.game.resolver import resolve_turn, render_turn_summary, TurnResult
@@ -32,7 +36,7 @@ from space_agent.game.state import (
     read_current, resolve_save_dir,
 )
 from space_agent.game.turn import TurnContext
-from space_agent.simulation.planet import Planet, Star, generate_system
+from space_agent.simulation.planet import Planet, Star, Atmosphere, generate_system
 from space_agent.simulation.resources import (
     BuildingType, Recipe, RECIPES, BUILD_COSTS, Resource, Stockpile,
     EnergySource, solar_output, geothermal_output, nuclear_output,
@@ -151,8 +155,45 @@ class GameEngine:
                 lines.append(f"### {c.name} ({c.planet_designation})")
                 lines.append(f"- Population: {c.population}")
                 lines.append(f"- Morale: {c.morale}")
-                lines.append(f"- Water: {c.water:.0f} | Metals: {c.metals:.0f} | Energy: {c.energy:.0f}")
-                lines.append(f"- Habitat modules: {c.habitat_modules} | Mining rigs: {c.mining_rigs}")
+
+                # Energy summary
+                energy_prod = c_data.get("energy_production_mw", 0.0) if isinstance(c_data, dict) else c.energy_production_mw
+                energy_cons = c_data.get("energy_consumption_mw", 0.0) if isinstance(c_data, dict) else c.energy_consumption_mw
+                energy_net = c_data.get("energy_net_mw", 0.0) if isinstance(c_data, dict) else c.energy_net_mw
+                net_icon = "⚡" if energy_net >= 0 else "⚠️"
+                lines.append(f"- Energy: {energy_prod:.0f} MW production / {energy_cons:.0f} MW consumption ({net_icon} {energy_net:+.0f} MW net)")
+
+                # Stockpile (from new per-colony stockpile if available)
+                stockpile = c_data.get("stockpile", {}) if isinstance(c_data, dict) else {}
+                if stockpile:
+                    # Show key resources
+                    key_resources = ["water", "iron_ore", "refined_iron", "oxygen", "co2", "silicates", "processed_silicon"]
+                    stock_parts = []
+                    for r in key_resources:
+                        amt = stockpile.get(r, 0.0)
+                        if amt > 0:
+                            stock_parts.append(f"{r}: {amt:.0f}")
+                    if stock_parts:
+                        lines.append(f"- Stockpile: {' | '.join(stock_parts)}")
+                else:
+                    # Legacy fallback
+                    lines.append(f"- Water: {c.water:.0f} | Metals: {c.metals:.0f} | Energy: {c.energy:.0f}")
+
+                # Buildings
+                buildings = c_data.get("buildings", []) if isinstance(c_data, dict) else []
+                if buildings:
+                    building_summary = {}
+                    for b in buildings:
+                        bkind = b.get("kind", "?")
+                        bstatus = b.get("status", "?")
+                        if bstatus == "active":
+                            building_summary[bkind] = building_summary.get(bkind, 0) + 1
+                    if building_summary:
+                        parts = [f"{count}x {kind.replace('_', ' ')}" for kind, count in sorted(building_summary.items())]
+                        lines.append(f"- Buildings: {', '.join(parts)}")
+                else:
+                    lines.append(f"- Habitat modules: {c.habitat_modules} | Mining rigs: {c.mining_rigs}")
+
                 lines.append("")
 
         # Operations
@@ -190,6 +231,39 @@ class GameEngine:
         lines = []
         lines.append(f"# Turn {result.turn} — Resolution")
         lines.append("")
+
+        # Colony reports
+        colony_reports = getattr(result, 'colony_reports', [])
+        if colony_reports:
+            lines.append("## Colony Operations")
+            for cr in colony_reports:
+                colony_name = cr.get("colony_name", "?")
+                designation = cr.get("planet_designation", "?")
+                energy = cr.get("energy", {})
+                production = cr.get("production", {})
+
+                lines.append(f"### {colony_name} ({designation})")
+                lines.append(f"- Energy: {energy.get('solar_mw', 0):.0f} MW solar + {energy.get('nuclear_mw', 0):.0f} MW nuclear + {energy.get('geothermal_mw', 0):.0f} MW geothermal = {energy.get('total_production_mw', 0):.0f} MW")
+                lines.append(f"- Net: {energy.get('net_mw', 0):+.0f} MW")
+
+                produced = production.get("produced", {})
+                consumed = production.get("consumed", {})
+                if produced:
+                    parts = [f"{v:.0f} {k}" for k, v in produced.items() if v > 0]
+                    lines.append(f"- Produced: {', '.join(parts)}")
+                if consumed:
+                    parts = [f"{v:.0f} {k}" for k, v in consumed.items() if v > 0]
+                    lines.append(f"- Consumed: {', '.join(parts)}")
+
+                idle = production.get("idle_buildings", [])
+                if idle:
+                    lines.append(f"- Idle buildings: {len(idle)}")
+
+                # Production messages
+                for msg in production.get("messages", []):
+                    lines.append(f"  - {msg}")
+
+                lines.append("")
 
         # Summary
         s = result.summary
@@ -245,14 +319,20 @@ class GameEngine:
         # Apply agent actions to state
         self._apply_actions(state, action_doc, ctx)
 
-        # Build entities from state
+        # Resolve colony turns (energy + production per colony)
+        colony_reports = self._resolve_colonies(state)
+
+        # Build entities from state (for drone/entity resolution)
         entities = self._build_entities(state)
 
-        # Resolve the turn
+        # Resolve the turn (entity hooks)
         result = resolve_turn(entities, ctx)
 
         # Apply turn results to state
         self._apply_results(state, result, ctx)
+
+        # Merge colony reports into turn result
+        result.colony_reports = colony_reports
 
         # Process operations (advance ETAs)
         for op_data in state.operations:
@@ -289,23 +369,26 @@ class GameEngine:
         planets = state.get_planets()
         star = state.get_star()
 
-        # Calculate energy budget from colonies and buildings
+        # Calculate energy budget from colonies
         energy_available = 0.0
+        total_stockpile = {}
         if state.colonies:
             for c_data in state.colonies:
-                c = Colony.from_dict(c_data) if isinstance(c_data, dict) else c_data
-                energy_available += c.energy
+                energy_available += c_data.get("energy_production_mw", c_data.get("energy", 0.0))
+                # Merge stockpiles for entity-level context
+                for key, val in c_data.get("stockpile", {}).items():
+                    total_stockpile[key] = total_stockpile.get(key, 0.0) + val
 
-        # If no colonies yet, use credits as proxy for starting energy
+        # If no colonies yet, use starting probe energy
         if not state.colonies:
-            energy_available = 50.0  # Starting probe energy
+            energy_available = 50.0
 
         ctx = TurnContext(
             turn=state.turn,
             turn_period_years=state.turn_period_years,
             seed=state.seed,
             energy_available_mw=energy_available,
-            stockpile=self._build_stockpile(state).to_dict(),
+            stockpile=total_stockpile,
             planets=[_planet_to_summary_dict(p) for p in planets],
             colonies={c_data.get("planet_designation", f"colony_{i}"): c_data
                        for i, c_data in enumerate(state.colonies)},
@@ -324,6 +407,46 @@ class GameEngine:
                 pile.add(Resource.SILICATES, c.metals * 0.5)  # Silicates roughly half metals
                 # Energy is tracked separately in colonies
         return pile
+
+    def _resolve_colonies(self, state: GameState) -> list[dict]:
+        """Run colony simulation (energy + production) for each colony."""
+        planets = state.get_planets()
+        planet_map = {p.designation: p for p in planets}
+        reports = []
+
+        for c_data in state.colonies:
+            designation = c_data.get("planet_designation", "")
+            planet = planet_map.get(designation)
+            if planet is None:
+                continue
+
+            report = resolve_colony_turn(c_data, planet)
+            reports.append(report)
+
+            # Add colony events to the state event log
+            production = report.get("production", {})
+            energy = report.get("energy", {})
+
+            # Log production events
+            for msg in production.get("messages", []):
+                state.events.append({
+                    "turn": state.turn,
+                    "text": f"[{report.get('colony_name', '?')}] {msg}",
+                    "type": "production",
+                })
+
+            # Log idle buildings as warnings
+            for idle in production.get("idle_buildings", []):
+                reason = idle.get("reason", "unknown")
+                bid = idle.get("building_id", "?")
+                if reason == "insufficient_energy":
+                    state.events.append({
+                        "turn": state.turn,
+                        "text": f"[{report.get('colony_name', '?')}] {bid} idle: insufficient energy",
+                        "type": "warning",
+                    })
+
+        return reports
 
     def _build_entities(self, state: GameState) -> list[Entity]:
         """Build entity list from game state for turn resolution.
@@ -383,6 +506,8 @@ class GameEngine:
         for action in action_doc.actions:
             if action.action_type == ActionType.BUILD:
                 self._apply_build(state, action, ctx)
+            elif action.action_type == ActionType.ASSIGN:
+                self._apply_assign(state, action, ctx)
             elif action.action_type == ActionType.DEPLOY:
                 self._apply_deploy(state, action, ctx)
             elif action.action_type == ActionType.TERRAFORM:
@@ -418,38 +543,127 @@ class GameEngine:
                     ctx.add_event("colony", f"Colony already exists on {target_planet.designation}.", source="agent")
                     return
 
+                # Create colony with initial stockpile and buildings
+                stockpile = initial_stockpile(target_planet)
+                buildings = initial_buildings(target_planet)
+
                 colony = Colony(
                     name=f"New {target_planet.name}",
                     planet_designation=target_planet.designation,
                     population=0,
-                    morale="DETERMINED",
+                    morale="HOPEFUL",
                     founded_turn=state.turn,
+                    stockpile=stockpile,
+                    buildings=buildings,
                 )
+
+                # Calculate initial energy from starting buildings
+                energy_report = calculate_energy(buildings, target_planet, stockpile)
+                colony.energy_production_mw = energy_report.total_production_mw
+                colony.energy_consumption_mw = energy_report.total_consumption_mw
+                colony.energy_net_mw = energy_report.net_mw
+                # Sync legacy fields
+                colony.water = stockpile.get("water", 0.0)
+                colony.metals = stockpile.get("iron_ore", 0.0)
+                colony.energy = energy_report.net_mw
+
                 state.colonies.append(colony.to_dict())
                 state.credits -= 500  # Colony establishment cost
-                ctx.add_event("colony", f"Colony established on {target_planet.designation} ({target_planet.name}).", source="agent")
+                ctx.add_event("colony", f"Colony established on {target_planet.designation} ({target_planet.name}). Initial buildings: {len(buildings)}. Solar output: {energy_report.solar_mw:.0f} MW.", source="agent")
             else:
                 ctx.add_event("colony", f"Could not establish colony: planet {planet} not found.", source="agent")
             return
 
-        # Look up build cost
-        for key, cost in BUILD_COSTS.items():
-            if key == building_type_str:
-                # Create a new operation for the build
-                op = Operation(
-                    id=f"build_{building_type_str}_{state.turn}",
-                    kind="construction",
-                    status="in_progress",
-                    target=planet,
-                    started_turn=state.turn,
-                    eta_turn=state.turn + cost.build_turns,
-                    resource_cost={str(k): v for k, v in cost.costs.items()},
-                    description=f"Building {cost.name} at {planet}",
-                )
-                state.operations.append(op.to_dict())
-                state.credits -= 100  # Simplified: buildings cost credits
-                ctx.add_event("construction", f"Construction begun: {cost.name} at {planet}", source="agent")
+        # Regular building construction — add to colony's building list
+        # Find the colony on the target planet
+        target_colony = None
+        for c_data in state.colonies:
+            if c_data.get("planet_designation", "") == planet or planet.endswith(c_data.get("planet_designation", "")):
+                target_colony = c_data
                 break
+
+        if target_colony is None:
+            ctx.add_event("construction", f"Cannot build {building_type_str}: no colony on {planet}.", source="agent")
+            return
+
+        # Look up build cost
+        build_cost = BUILD_COSTS.get(building_type_str)
+        build_turns = build_cost.build_turns if build_cost else 1
+        build_name = build_cost.name if build_cost else building_type_str.replace("_", " ").title()
+
+        # Generate building ID
+        existing_count = sum(
+            1 for b in target_colony.get("buildings", [])
+            if b.get("kind") == building_type_str
+        )
+        building_id = f"{building_type_str}_{existing_count + 1:02d}"
+
+        # Get default recipe for this building type
+        try:
+            btype = BuildingType(building_type_str)
+            default_recipe = _default_recipe_for_building(btype)
+        except ValueError:
+            default_recipe = ""
+
+        # Create building as under construction
+        new_building = {
+            "id": building_id,
+            "kind": building_type_str,
+            "recipe": default_recipe,
+            "status": "building",
+            "turns_remaining": build_turns,
+        }
+
+        buildings = target_colony.get("buildings", [])
+        buildings.append(new_building)
+        target_colony["buildings"] = buildings
+
+        # Update legacy counters directly
+        if building_type_str == "mine":
+            target_colony["mining_rigs"] = target_colony.get("mining_rigs", 0) + 1
+        elif building_type_str == "solar_array":
+            target_colony["habitat_modules"] = target_colony.get("habitat_modules", 0) + 1
+        elif building_type_str == "atmospheric_extractor":
+            target_colony["atmospheric_processors"] = target_colony.get("atmospheric_processors", 0) + 1
+        elif building_type_str == "research_lab":
+            target_colony["research_labs"] = target_colony.get("research_labs", 0) + 1
+
+        state.credits -= 100  # Simplified: buildings cost credits
+        ctx.add_event("construction", f"Construction begun: {build_name} at {planet} (ETA: {build_turns} turns)", source="agent")
+
+    def _apply_assign(self, state: GameState, action: Action, ctx: TurnContext) -> None:
+        """Assign a recipe to a building in a colony."""
+        building_id = action.target  # The building ID
+        recipe_name = action.params.get("recipe", "")
+        planet = action.params.get("planet", "")  # colony planet if needed
+
+        if not recipe_name:
+            ctx.add_event("assign", f"No recipe specified for assignment.", source="agent")
+            return
+
+        # Find the building across all colonies
+        found = False
+        for c_data in state.colonies:
+            for b in c_data.get("buildings", []):
+                if b.get("id") == building_id or (
+                    # Also match by kind if no specific ID given
+                    not building_id and b.get("kind") == action.params.get("building_type", "")
+                ):
+                    old_recipe = b.get("recipe", "")
+                    b["recipe"] = recipe_name
+                    b["status"] = "idle"  # Reset to idle so it picks up the new recipe
+                    ctx.add_event(
+                        "assign",
+                        f"Assigned recipe '{recipe_name}' to {b.get('id', '?')} at {c_data.get('name', '?')} (was: '{old_recipe}').",
+                        source="agent"
+                    )
+                    found = True
+                    break
+            if found:
+                break
+
+        if not found:
+            ctx.add_event("assign", f"Building '{building_id}' not found in any colony.", source="agent")
 
     def _apply_deploy(self, state: GameState, action: Action, ctx: TurnContext) -> None:
         """Apply a deploy action (send a drone/probe)."""
@@ -575,21 +789,34 @@ class GameEngine:
             for p in planets:
                 if p.designation not in state.explored:
                     actions.append(f"Survey {p.designation} (orbital scan)")
-            # Can establish colony on any explored planet
+            # Can establish colony on any planet
             for p in planets:
-                actions.append(f"Establish colony on {p.designation} ({p.name})")
+                h = p.habitability_index
+                actions.append(f"Establish colony on {p.designation} ({p.name}) [hab: {h:.0f}]")
         else:
             # Colony exists — can build infrastructure
-            actions.append("Build mine (extract raw ore)")
-            actions.append("Build smelter (refine metals)")
-            actions.append("Build fabricator (manufacture components)")
-            actions.append("Build solar array (generate energy)")
-            actions.append("Deploy surface probe")
-            actions.append("Deploy orbiter")
+            # Show available building types from BUILD_COSTS
+            for key, cost in BUILD_COSTS.items():
+                # Skip assembled systems (those need assembly bays)
+                if key in ("scout_node", "orbiter_node", "surface_node",
+                           "relay_node", "constructor_node"):
+                    continue
+                actions.append(f"Build {key.replace('_', ' ')} at [colony] ({cost.build_turns} turns)")
 
-            # Terraforming options (if colony exists)
-            actions.append("Initiate CO₂ injection (greenhouse warming)")
-            actions.append("Deploy orbital mirrors (increase solar flux)")
+            # Drone deployment
+            actions.append("Deploy surface probe to [planet]")
+            actions.append("Deploy orbiter to [planet]")
+
+            # Terraforming options
+            actions.append("Initiate CO₂ injection at [planet] (greenhouse warming)")
+            actions.append("Deploy orbital mirrors at [planet] (increase solar flux)")
+
+            # Show current colony status hints
+            for c_data in state.colonies:
+                name = c_data.get("name", "?")
+                energy_net = c_data.get("energy_net_mw", 0.0)
+                if energy_net < 0:
+                    actions.append(f"⚠ {name} is in energy deficit — build solar arrays")
 
         # Always available
         actions.append("Continue current operations")
