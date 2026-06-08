@@ -290,6 +290,32 @@ def cmd_play(args):
         print("\n" + engine.render_result(result, state))
 
 
+def cmd_recipes(args):
+    """List all production recipes."""
+    from space_agent.simulation.resources import RECIPES, BuildingType
+
+    # Group recipes by building type
+    by_building = {}
+    for key, recipe in RECIPES.items():
+        bt = recipe.building.value
+        if bt not in by_building:
+            by_building[bt] = []
+        by_building[bt].append((key, recipe))
+
+    for bt in sorted(by_building.keys()):
+        print(f"\n### {bt.replace('_', ' ').title()}")
+        for key, recipe in by_building[bt]:
+            input_parts = []
+            for r, amt in recipe.inputs.items():
+                input_parts.append(f"{amt:.0f} {r.value}")
+            output_parts = []
+            for r, amt in recipe.outputs.items():
+                output_parts.append(f"{amt:.0f} {r.value}")
+            inputs_str = ", ".join(input_parts) if input_parts else "(none)"
+            outputs_str = ", ".join(output_parts) if output_parts else "(none)"
+            print(f"  {key:20s}  {inputs_str} → {outputs_str}  [{recipe.energy_mw:.0f} MW]")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Space Agent — Physics-driven space colonization simulator",
@@ -322,6 +348,9 @@ def main():
     # saves
     sub.add_parser("saves", help="List all saves")
 
+    # recipes
+    sub.add_parser("recipes", help="List all production recipes")
+
     # turn
     turn = sub.add_parser("turn", help="Process a turn from action document")
     turn.add_argument("--action", help="File containing action document (default: stdin)")
@@ -347,6 +376,8 @@ def main():
         cmd_describe(args)
     elif args.command == "saves":
         cmd_saves(args)
+    elif args.command == "recipes":
+        cmd_recipes(args)
     elif args.command == "turn":
         cmd_turn(args)
     elif args.command == "interact":

@@ -292,6 +292,10 @@ def initial_stockpile(planet: Planet) -> dict[str, float]:
     stockpile["silicates"] = 50.0
     stockpile["aluminum_ore"] = 10.0
 
+    # Refined materials from seed AI reserves — enough to bootstrap first buildings
+    stockpile["refined_iron"] = 30.0
+    stockpile["processed_silicon"] = 15.0
+
     # Trace resources
     stockpile["rare_earths"] = 1.0
 

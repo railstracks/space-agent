@@ -141,7 +141,6 @@ class GameEngine:
         # Program overview
         lines.append("## Swarm Status")
         lines.append(f"- Turn: **{state.turn}** ({state.turn_period_years:.0f} years per turn)")
-        lines.append(f"- Credits: **{state.credits:.0f}**")
         lines.append(f"- Colonies: {len(state.colonies)}")
         lines.append(f"- Active operations: {len([o for o in state.operations if o.get('status', '') == 'in_progress'])}")
         if state.explored:
@@ -181,11 +180,9 @@ class GameEngine:
                 # Stockpile (from new per-colony stockpile if available)
                 stockpile = c_data.get("stockpile", {}) if isinstance(c_data, dict) else {}
                 if stockpile:
-                    # Show key resources
-                    key_resources = ["water", "iron_ore", "refined_iron", "oxygen", "co2", "silicates", "processed_silicon"]
                     stock_parts = []
-                    for r in key_resources:
-                        amt = stockpile.get(r, 0.0)
+                    for r in sorted(stockpile.keys()):
+                        amt = stockpile[r]
                         if amt > 0:
                             stock_parts.append(f"{r}: {amt:.0f}")
                     if stock_parts:
@@ -197,15 +194,32 @@ class GameEngine:
                 # Buildings
                 buildings = c_data.get("buildings", []) if isinstance(c_data, dict) else []
                 if buildings:
-                    building_summary = {}
+                    active_parts = []
+                    idle_parts = []
+                    building_parts = []
                     for b in buildings:
-                        bkind = b.get("kind", "?")
+                        bkind = b.get("kind", "?").replace("_", " ")
                         bstatus = b.get("status", "?")
-                        if bstatus == "active":
-                            building_summary[bkind] = building_summary.get(bkind, 0) + 1
-                    if building_summary:
-                        parts = [f"{count}x {kind.replace('_', ' ')}" for kind, count in sorted(building_summary.items())]
+                        bid = b.get("id", "?")
+                        recipe = b.get("recipe", "")
+                        turns_left = b.get("turns_remaining", 0)
+                        if bstatus == "building" or turns_left > 0:
+                            building_parts.append(f"{bkind} ({turns_left}t)")
+                        elif bstatus == "idle":
+                            idle_parts.append(f"{bid}: idle")
+                        elif bstatus == "active":
+                            active_parts.append(bkind)
+                    # Render sections
+                    if active_parts:
+                        active_summary = {}
+                        for k in active_parts:
+                            active_summary[k] = active_summary.get(k, 0) + 1
+                        parts = [f"{count}x {kind}" for kind, count in sorted(active_summary.items())]
                         lines.append(f"- Buildings: {', '.join(parts)}")
+                    if idle_parts:
+                        lines.append(f"- Idle: {', '.join(idle_parts)}")
+                    if building_parts:
+                        lines.append(f"- Under construction: {', '.join(building_parts)}")
                 else:
                     lines.append(f"- Habitat modules: {c.habitat_modules} | Mining rigs: {c.mining_rigs}")
 
@@ -213,12 +227,14 @@ class GameEngine:
 
         # Operations
         if state.operations:
-            lines.append("## Active Operations")
-            for op_data in state.operations:
-                op = Operation.from_dict(op_data) if isinstance(op_data, dict) else op_data
-                status_icon = "🔄" if op.status == "in_progress" else "✅" if op.status == "complete" else "❌"
-                lines.append(f"- {status_icon} {op.kind}: {op.description} (ETA: turn {op.eta_turn})")
-            lines.append("")
+            active_ops = [o for o in state.operations
+                          if (o.get('status', '') if isinstance(o, dict) else o.status) == 'in_progress']
+            if active_ops:
+                lines.append("## Active Operations")
+                for op_data in active_ops:
+                    op = Operation.from_dict(op_data) if isinstance(op_data, dict) else op_data
+                    lines.append(f"- 🔄 {op.kind}: {op.description} (ETA: turn {op.eta_turn})")
+                lines.append("")
 
         # Events
         if state.events:
@@ -312,7 +328,6 @@ class GameEngine:
         # Current state summary
         lines.append("## Current Status")
         lines.append(f"- Turn: {state.turn}")
-        lines.append(f"- Credits: {state.credits:.0f}")
         lines.append(f"- Colonies: {len(state.colonies)}")
         lines.append("")
 
@@ -563,7 +578,7 @@ class GameEngine:
                 buildings = initial_buildings(target_planet)
 
                 colony = Colony(
-                    name=f"New {target_planet.name}",
+                    name=f"New {target_planet.designation}",
                     planet_designation=target_planet.designation,
                     population=0,
                     morale="HOPEFUL",
@@ -583,7 +598,6 @@ class GameEngine:
                 colony.energy = energy_report.net_mw
 
                 state.colonies.append(colony.to_dict())
-                state.credits -= 500  # Colony establishment cost
 
                 # Colony establishment narrative
                 planet_desc = describe(target_planet).split('.')[0] + '.' if describe(target_planet) else f"A world with habitability index {target_planet.habitability_index:.0f}."
@@ -605,14 +619,43 @@ class GameEngine:
                 target_colony = c_data
                 break
 
+        # Fallback: if no planet specified and only one colony, use it
+        if target_colony is None and not planet and len(state.colonies) == 1:
+            target_colony = state.colonies[0]
+            planet = target_colony.get("planet_designation", "")
+
         if target_colony is None:
-            ctx.add_event("construction", f"Cannot build {building_type_str}: no colony on {planet}.", source="agent")
+            if not planet:
+                colony_names = [c.get("name", c.get("planet_designation", "?")) for c in state.colonies]
+                ctx.add_event("construction", f"Cannot build {building_type_str}: specify a colony. Available: {', '.join(colony_names)}", source="agent")
+            else:
+                ctx.add_event("construction", f"Cannot build {building_type_str}: no colony on {planet}.", source="agent")
             return
 
         # Look up build cost
         build_cost = BUILD_COSTS.get(building_type_str)
         build_turns = build_cost.build_turns if build_cost else 1
         build_name = build_cost.name if build_cost else building_type_str.replace("_", " ").title()
+
+        # Check physical resource cost from colony stockpile
+        if build_cost:
+            stockpile = target_colony.get("stockpile", {})
+            unaffordable = []
+            for resource, amount in build_cost.costs.items():
+                key = resource.value if isinstance(resource, Resource) else resource
+                available = stockpile.get(key, 0.0)
+                if available < amount:
+                    unaffordable.append(f"{key}: {available:.0f}/{amount:.0f}")
+            if unaffordable:
+                ctx.add_event("construction",
+                    f"Cannot build {build_name}: insufficient materials — {', '.join(unaffordable)}",
+                    source="agent")
+                return
+
+            # Deduct materials from stockpile
+            for resource, amount in build_cost.costs.items():
+                key = resource.value if isinstance(resource, Resource) else resource
+                stockpile[key] = stockpile.get(key, 0.0) - amount
 
         # Generate building ID
         existing_count = sum(
@@ -651,7 +694,6 @@ class GameEngine:
         elif building_type_str == "research_lab":
             target_colony["research_labs"] = target_colony.get("research_labs", 0) + 1
 
-        state.credits -= 100  # Simplified: buildings cost credits
         ctx.add_event("construction", f"Construction begun: {build_name} at {planet} (ETA: {build_turns} turns)", source="agent")
 
     def _apply_assign(self, state: GameState, action: Action, ctx: TurnContext) -> None:
@@ -664,6 +706,13 @@ class GameEngine:
             ctx.add_event("assign", f"No recipe specified for assignment.", source="agent")
             return
 
+        # Resolve recipe name — fuzzy match against RECIPES keys
+        resolved_recipe = _resolve_recipe_name(recipe_name)
+        if not resolved_recipe:
+            available = sorted(RECIPES.keys())
+            ctx.add_event("assign", f"Unknown recipe '{recipe_name}'. Available: {', '.join(available)}", source="agent")
+            return
+
         # Find the building across all colonies
         found = False
         for c_data in state.colonies:
@@ -673,11 +722,11 @@ class GameEngine:
                     not building_id and b.get("kind") == action.params.get("building_type", "")
                 ):
                     old_recipe = b.get("recipe", "")
-                    b["recipe"] = recipe_name
+                    b["recipe"] = resolved_recipe
                     b["status"] = "idle"  # Reset to idle so it picks up the new recipe
                     ctx.add_event(
                         "assign",
-                        f"Assigned recipe '{recipe_name}' to {b.get('id', '?')} at {c_data.get('name', '?')} (was: '{old_recipe}').",
+                        f"Assigned recipe '{resolved_recipe}' to {b.get('id', '?')} at {c_data.get('name', '?')} (was: '{old_recipe}').",
                         source="agent"
                     )
                     found = True
@@ -821,13 +870,15 @@ class GameEngine:
                 actions.append(f"Establish colony on {p.designation} ({p.name}) [hab: {h:.0f}]")
         else:
             # Colony exists — can build infrastructure
-            # Show available building types from BUILD_COSTS
+            # Show available building types with resource costs
             for key, cost in BUILD_COSTS.items():
                 # Skip assembled systems (those need assembly bays)
                 if key in ("scout_node", "orbiter_node", "surface_node",
                            "relay_node", "constructor_node"):
                     continue
-                actions.append(f"Build {key.replace('_', ' ')} at [colony] ({cost.build_turns} turns)")
+                cost_parts = [f"{amt:.0f} {r.value}" for r, amt in cost.costs.items()]
+                cost_str = ", ".join(cost_parts) if cost_parts else "free"
+                actions.append(f"Build {key.replace('_', ' ')} at [colony] — cost: {cost_str} ({cost.build_turns}t)")
 
             # Drone deployment
             actions.append("Deploy surface probe to [planet]")
@@ -886,6 +937,68 @@ def _default_recipe_for_building(building_type: BuildingType) -> str:
         BuildingType.ICE_DRILL: "drill_ice",
     }
     return defaults.get(building_type, "")
+
+
+def _resolve_recipe_name(name: str) -> str:
+    """Resolve a recipe name (possibly fuzzy) to a valid RECIPES key.
+
+    Handles variations like:
+    - 'iron_smelting' → 'smelt_iron'
+    - 'iron smelting' → 'smelt_iron'
+    - 'smelt_iron' → 'smelt_iron' (exact match)
+    """
+    if name in RECIPES:
+        return name
+
+    # Normalize: replace spaces with underscores, lowercase
+    normalized = name.lower().strip().replace(" ", "_")
+
+    # Direct match after normalization
+    if normalized in RECIPES:
+        return normalized
+
+    # Fuzzy: try to match by stem words
+    # Build a reverse lookup: friendly keywords → recipe key
+    keyword_map = {
+        "iron_mining": "mine_iron",
+        "aluminum_mining": "mine_aluminum",
+        "titanium_mining": "mine_titanium",
+        "silicate_mining": "mine_silicates",
+        "uranium_mining": "mine_uranium",
+        "rare_earth_mining": "mine_rare_earths",
+        "iron_smelting": "smelt_iron",
+        "aluminum_smelting": "smelt_aluminum",
+        "titanium_smelting": "smelt_titanium",
+        "silicon_processing": "process_silicon",
+        "carbon_processing": "process_carbon",
+        "co2_extraction": "extract_co2",
+        "co₂_extraction": "extract_co2",
+        "nitrogen_extraction": "extract_nitrogen",
+        "methane_extraction": "extract_methane",
+        "ice_drilling": "drill_ice",
+        "water_electrolysis": "electrolyze_water",
+        "fuel_enrichment": "enrich_fuel",
+        "structural_frame_fabrication": "fab_frame",
+        "circuit_substrate_fabrication": "fab_circuit",
+        "reactor_cell_fabrication": "fab_reactor",
+        "fuel_cell_fabrication": "fab_fuel_cell",
+        "sensor_array_fabrication": "fab_sensor",
+        "computer_core_fabrication": "fab_computer",
+        "propulsion_unit_fabrication": "fab_propulsion",
+        "carbon_fiber_fabrication": "fab_carbon_fiber",
+    }
+
+    if normalized in keyword_map:
+        return keyword_map[normalized]
+
+    # Last resort: try stripping common prefixes/suffixes
+    for recipe_key in RECIPES:
+        # Check if the normalized name contains the core of a recipe key
+        core = normalized.replace("_mining", "").replace("_smelting", "").replace("_processing", "")
+        if core and core in recipe_key:
+            return recipe_key
+
+    return ""
 
 
 def _drone_type_for_operation(kind: str) -> DroneType:

@@ -134,8 +134,7 @@ class GameState:
     turn_period_years: float = 5.0  # how many in-game years per turn
     seed: int = 42
 
-    # Program resources (the colonization program, not individual colonies)
-    credits: float = 5000.0
+    # Program resources
     probe_capacity: int = 1
     research_points: float = 0.0
 
@@ -268,7 +267,6 @@ def new_game(
     seed: int | None = None,
     star_name: str = "Kepler-442",
     num_planets: int = 5,
-    credits: float = 5000.0,
     save_dir: str | Path = "saves",
 ) -> GameState:
     """Create a new game with a generated star system."""
@@ -284,7 +282,6 @@ def new_game(
         last_played=datetime.now(timezone.utc).isoformat(),
         turn=0,
         seed=seed,
-        credits=credits,
         star={
             "name": star.name,
             "spectral_type": star.spectral_type,
