@@ -426,28 +426,26 @@ Silicate weathering is accelerating. If it offsets CO₂ injection within
 
 ### 7.2 Module Map
 
-```
-space_agent/
+```space_agent/
 ├── simulation/
-│   ├── planet.py          # Planet generation, property computation
+│   ├── planet.py          # Planet generation, property computation, Star, Atmosphere
 │   ├── atmosphere.py      # Atmospheric chemistry and dynamics
-│   ├── geology.py         # Tectonic activity, resource distribution
-│   ├── climate.py         # Temperature, weather, feedback loops
-│   ├── biosphere.py       # Life detection, ecological cascades
-│   ├── resources.py       # Resource model, production chains
-│   └── star.py            # Stellar properties, radiation
+│   ├── resources.py       # Resource model, 20 recipes, production simulation, BuildCost
+│   └── drones.py          # 11 drone types with specs, costs, capabilities
 ├── agents/
-│   ├── interface.py       # Turn parsing, action validation
+│   ├── protocol.py        # AgentProtocol — Markdown I/O for LLM agents
 │   ├── renderer.py        # State → Markdown rendering
 │   └── describe.py        # Narrative description generator
 ├── game/
-│   ├── state.py           # Game state management, JSON saves
-│   ├── turn.py            # Turn resolution engine
-│   ├── production.py      # Production chain simulation
-│   ├── events.py          # Random events, crises, discoveries
-│   ├── terraform.py       # Terraforming simulation
-│   └── victory.py         # Endgame / fleet arrival conditions
-└── __main__.py            # CLI entry point
+│   ├── state.py           # GameState, Colony, save/load, JSON persistence
+│   ├── action.py          # Action parsing (Markdown → structured commands)
+│   ├── engine.py           # GameEngine — turn cycle, events, rendering, narrative
+│   ├── colony_sim.py      # Per-colony simulation (energy, production, construction)
+│   ├── entity.py           # Entity base class with 4-phase lifecycle hooks
+│   ├── entities.py         # BuildingEntity, DroneEntity, DroneCarrierEntity
+│   ├── turn.py             # TurnContext (entity hook access)
+│   └── resolver.py         # TurnResolver (walks entities through 4 phases)
+└── __main__.py            # CLI entry point (turn, interact, play, describe commands)
 ```
 
 ### 7.3 Design Constraints
@@ -462,16 +460,17 @@ space_agent/
 
 ## 8. Open Questions
 
-- [ ] Time scale: what's one turn? (Variable? Fixed?)
-- [ ] How many planets in a typical game?
+- [x] Time scale: what's one turn? → **5 years per turn** (configurable via seed)
+- [x] How many planets in a typical game? → **5–8** in a generated star system (seed-dependent)
 - [ ] Multi-agent: can multiple agents play in the same universe?
 - [ ] Difficulty: how harsh should physics be? (Realistic vs. forgiving)
 - [ ] Crisis frequency: how often should things go wrong?
 - [ ] Tech tree: is there one? Or purely physics + infrastructure driven?
-- [ ] Inter-world trade: can resources move between colonies?
+- [x] Inter-world trade: can resources move between colonies? → **Not yet implemented.** Planned.
 - [ ] Fleet arrival: fixed turn count or configurable?
 - [ ] Visual output: any? Or pure text?
 - [x] ~~Economy: credits or resources?~~ → **Resources.** No economy, production chains.
+- [x] ~~Agent interface format?~~ → **Markdown documents.** AgentProtocol class wraps GameEngine with Markdown I/O.
 
 ---
 
