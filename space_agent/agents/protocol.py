@@ -65,11 +65,13 @@ class TurnResponse:
         state_md: Markdown document showing the new game state.
         turn: The turn number that was just processed.
         events: List of event dicts from this turn.
+        population_reports: List of population dynamics reports.
     """
     result_md: str
     state_md: str
     turn: int
     events: list[dict]
+    population_reports: list[dict] = None
 
 
 class AgentProtocol:
@@ -96,7 +98,6 @@ class AgentProtocol:
         seed: Optional[int] = None,
         star_name: str = "Kepler-442",
         num_planets: int = 5,
-        credits: float = 5000.0,
     ) -> str:
         """Create a new game and return the initial state as Markdown.
 
@@ -108,7 +109,6 @@ class AgentProtocol:
             seed: Random seed for reproducibility. None = random.
             star_name: Name of the star system.
             num_planets: Number of planets to generate.
-            credits: Starting program credits.
 
         Returns:
             Markdown state document for turn 0.
@@ -118,7 +118,6 @@ class AgentProtocol:
             seed=seed,
             star_name=star_name,
             num_planets=num_planets,
-            credits=credits,
             save_dir=str(self.save_dir),
         )
         return self.engine.render_state(state)
@@ -181,6 +180,7 @@ class AgentProtocol:
             state_md=state_md,
             turn=state.turn,
             events=result.events if hasattr(result, 'events') else [],
+            population_reports=result.population_reports if hasattr(result, 'population_reports') else [],
         )
 
     def continue_turn(self, save_name: Optional[str] = None) -> TurnResponse:
@@ -217,6 +217,7 @@ class AgentProtocol:
             state_md=state_md,
             turn=state.turn,
             events=result.events if hasattr(result, 'events') else [],
+            population_reports=result.population_reports if hasattr(result, 'population_reports') else [],
         )
 
     # ── Query Methods ──────────────────────────────────────────────

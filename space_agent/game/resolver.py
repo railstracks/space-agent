@@ -27,6 +27,8 @@ class TurnResult:
     phase_reports: dict[str, list[EntityReport]] = field(default_factory=dict)
     events: list[dict] = field(default_factory=list)
     summary: dict = field(default_factory=dict)
+    colony_reports: list[dict] = field(default_factory=list)
+    population_reports: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {

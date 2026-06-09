@@ -91,6 +91,8 @@ from space_agent.simulation.resources import RECIPES as RECIPES_REGISTRY
 
 # Building names that can appear in actions
 BUILDING_KEYWORDS = {
+    "habitat module": "habitat_module",
+    "habitat": "habitat_module",
     "mine": "mine",
     "smelter": "smelter",
     "fabricator": "fabricator",

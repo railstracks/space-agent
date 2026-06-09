@@ -59,12 +59,12 @@ class Resource(Enum):
     PROPULSION_UNIT = "propulsion_unit"
 
     # Assembled systems
+    HABITAT_MODULE = "habitat_module"
     SCOUT_NODE = "scout_node"
     ORBITER_NODE = "orbiter_node"
     SURFACE_NODE = "surface_node"
     RELAY_NODE = "relay_node"
     CONSTRUCTOR_NODE = "constructor_node"
-    HABITAT_MODULE = "habitat_module"
     SOLAR_ARRAY = "solar_array"
     MINE = "mine"
     SMELTER = "smelter"
@@ -127,6 +127,7 @@ class Stockpile:
 
 class BuildingType(Enum):
     """Types of infrastructure buildings."""
+    HABITAT_MODULE = "habitat_module"
     MINE = "mine"
     ATMOSPHERIC_EXTRACTOR = "atmospheric_extractor"
     ICE_DRILL = "ice_drill"
@@ -261,6 +262,8 @@ RECIPES = {
 
 BUILD_COSTS = {
     # Infrastructure buildings
+    "habitat_module": BuildCost("Habitat Module", Resource.HABITAT_MODULE,
+        costs={Resource.REFINED_IRON: 8, Resource.PROCESSED_SILICON: 3}, build_turns=1),
     "mine": BuildCost("Mine", Resource.MINE,
         costs={Resource.REFINED_IRON: 5, Resource.SILICATES: 3}, build_turns=1),
     "atmospheric_extractor": BuildCost("Atmospheric Extractor", Resource.ATMOSPHERIC_EXTRACTOR,

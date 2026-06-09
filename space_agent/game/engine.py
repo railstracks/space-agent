@@ -36,6 +36,13 @@ from space_agent.game.state import (
     read_current, resolve_save_dir,
 )
 from space_agent.game.turn import TurnContext
+from space_agent.game.population import (
+    ColonyStage, FleetStatus, PopulationReport,
+    determine_stage, calculate_habitat_capacity, calculate_morale,
+    resolve_population_turn, can_build_building, evaluate_fleet_readiness,
+    STAGE_NAMES, STAGE_BUILDING_UNLOCKS, HABITAT_CAPACITY,
+    WATER_PER_CAPITA, ENERGY_PER_CAPITA,
+)
 from space_agent.simulation.planet import Planet, Star, Atmosphere, generate_system
 from space_agent.simulation.resources import (
     BuildingType, Recipe, RECIPES, BUILD_COSTS, Resource, Stockpile,
@@ -147,6 +154,30 @@ class GameEngine:
             lines.append(f"- Explored: {', '.join(state.explored)}")
         if state.surveyed:
             lines.append(f"- Surveyed: {', '.join(state.surveyed)}")
+
+        # Fleet status — the clock is always ticking
+        fleet = FleetStatus.from_dict(state.fleet) if isinstance(state.fleet, dict) else state.fleet
+        turns_left = max(0, fleet.arrival_turn - state.turn)
+        years_left = turns_left * state.turn_period_years
+        fleet_icon = "\U0001f680" if fleet.status == "en_route" else "\u2705" if fleet.status == "arrived" else "\U0001f3e0"
+        lines.append("")
+        lines.append(f"{fleet_icon} **Fleet: {fleet.total_colonists:,} colonists** — {fleet.status.replace('_', ' ').title()}")
+        if fleet.status == "en_route":
+            lines.append(f"   Arrives in **{turns_left} turns** ({years_left:.0f} years)")
+        elif fleet.status == "arrived":
+            lines.append(f"   Colonists in orbit. Awaiting habitat assignment.")
+
+        # Fleet readiness (if colonies exist)
+        if state.colonies:
+            readiness = evaluate_fleet_readiness(state.colonies, fleet, state.turn)
+            lines.append("")
+            lines.append("### Readiness Assessment")
+            lines.append(f"- Housing: **{readiness['housing_score']:.0f}%** ({readiness['total_habitat_capacity']:,} / {readiness['colonists_coming']:,} colonists)")
+            lines.append(f"- Water: **{readiness['water_score']:.0f}%** ({readiness['water_sustainability_turns']:.1f} turns of supply)")
+            lines.append(f"- Energy: **{readiness['energy_score']:.0f}%** (net {readiness['energy_net_mw']:.0f} MW / {readiness['energy_for_colonists_mw']:.0f} MW needed)")
+            lines.append(f"- **Overall: {readiness['readiness_score']:.0f}%**")
+            if readiness['housing_shortfall'] > 0:
+                lines.append(f"- \u26a0\ufe0f **Housing shortfall: {readiness['housing_shortfall']:,} colonists** without habitat")
         lines.append("")
 
         # Star
@@ -166,9 +197,15 @@ class GameEngine:
             lines.append("## Colonies")
             for c_data in state.colonies:
                 c = Colony.from_dict(c_data) if isinstance(c_data, dict) else c_data
+                pop = c_data.get("population", 0) if isinstance(c_data, dict) else c.population
+                morale = c_data.get("morale", "HOPEFUL") if isinstance(c_data, dict) else c.morale
+                stage = determine_stage(pop)
+                stage_name = STAGE_NAMES[stage]
+                hab_cap = calculate_habitat_capacity(c_data.get("buildings", []) if isinstance(c_data, dict) else [])
+
                 lines.append(f"### {c.name} ({c.planet_designation})")
-                lines.append(f"- Population: {c.population}")
-                lines.append(f"- Morale: {c.morale}")
+                lines.append(f"- Population: **{pop:,}** / {hab_cap:,} habitat capacity ({stage_name})")
+                lines.append(f"- Morale: **{morale}**")
 
                 # Energy summary
                 energy_prod = c_data.get("energy_production_mw", 0.0) if isinstance(c_data, dict) else c.energy_production_mw
@@ -296,6 +333,56 @@ class GameEngine:
 
                 lines.append("")
 
+        # Population reports
+        population_reports = getattr(result, 'population_reports', [])
+        if population_reports:
+            lines.append("## Population Dynamics")
+            for pr in population_reports:
+                pop_before = pr.get("population_before", 0)
+                pop_after = pr.get("population_after", 0)
+                growth = pr.get("growth", 0)
+                morale = pr.get("morale", "HOPEFUL")
+                morale_change = pr.get("morale_change", "")
+                stage = pr.get("stage", "outpost")
+                hab_cap = pr.get("habitat_capacity", 0)
+                hab_occ = pr.get("habitat_occupancy", 0)
+
+                colony_name = pr.get("colony_name", "?")
+                lines.append(f"### {colony_name}")
+                lines.append(f"- Population: **{pop_after:,}** ({growth:+d}) — {stage.title()}")
+                if hab_cap > 0:
+                    lines.append(f"- Habitat: {hab_occ:.0f}% occupied ({pop_after:,}/{hab_cap:,})")
+                else:
+                    lines.append(f"- Habitat: **no habitat modules built** — settlers cannot arrive")
+
+                # Morale with change indicator
+                morale_icon = {
+                    "DESPERATE": "\U0001f534", "STRUGGLING": "\U0001f7e1",
+                    "CAUTIOUS": "\U0001f7e2", "HOPEFUL": "\U0001f7e3",
+                    "OPTIMISTIC": "\U0001f7e0", "THRIVING": "\u2b50",
+                }.get(morale, "")
+                change_str = f" ({morale_change})" if morale_change and morale_change != "stable" else ""
+                lines.append(f"- Morale: {morale_icon} {morale}{change_str}")
+
+                # Sufficiency indicators
+                water_suff = pr.get("water_sufficiency", 1.0)
+                energy_suff = pr.get("energy_sufficiency", 1.0)
+                housing_suff = pr.get("housing_sufficiency", 1.0)
+                suff_parts = []
+                if water_suff < 1.0:
+                    suff_parts.append(f"water: {water_suff:.0%}")
+                if energy_suff < 1.0:
+                    suff_parts.append(f"energy: {energy_suff:.0%}")
+                if housing_suff < 1.0:
+                    suff_parts.append(f"housing: {housing_suff:.0%}")
+                if suff_parts:
+                    lines.append(f"- \u26a0 Shortages: {', '.join(suff_parts)}")
+
+                # Population messages
+                for msg in pr.get("messages", []):
+                    lines.append(f"  - {msg}")
+                lines.append("")
+
         # Summary
         s = result.summary
         lines.append(f"**Energy:** {s['energy_used_mw']:.0f} / {s['energy_total_mw']:.0f} MW consumed")
@@ -352,6 +439,9 @@ class GameEngine:
         # Resolve colony turns (energy + production per colony)
         colony_reports = self._resolve_colonies(state)
 
+        # Resolve population dynamics (growth, morale, life support)
+        population_reports = self._resolve_population(state)
+
         # Build entities from state (for drone/entity resolution)
         entities = self._build_entities(state)
 
@@ -363,6 +453,7 @@ class GameEngine:
 
         # Merge colony reports into turn result
         result.colony_reports = colony_reports
+        result.population_reports = population_reports
 
         # Process operations (advance ETAs)
         for op_data in state.operations:
@@ -475,6 +566,35 @@ class GameEngine:
                         "text": f"[{report.get('colony_name', '?')}] {bid} idle: insufficient energy",
                         "type": "warning",
                     })
+
+        return reports
+
+    def _resolve_population(self, state: GameState) -> list[dict]:
+        """Resolve population dynamics for all colonies."""
+        reports = []
+
+        for c_data in state.colonies:
+            pop_report = resolve_population_turn(c_data)
+            reports.append(pop_report.to_dict())
+
+            # Add population events to state event log
+            for msg in pop_report.messages:
+                state.events.append({
+                    "turn": state.turn,
+                    "text": f"[{pop_report.colony_name or pop_report.planet_designation}] {msg}",
+                    "type": "population",
+                })
+
+            # Check fleet arrival
+            fleet = FleetStatus.from_dict(state.fleet) if isinstance(state.fleet, dict) else state.fleet
+            if state.turn >= fleet.arrival_turn and fleet.status == "en_route":
+                fleet.status = "arrived"
+                state.fleet = fleet.to_dict()
+                state.events.append({
+                    "turn": state.turn,
+                    "text": f"The colony fleet has arrived! {fleet.total_colonists:,} colonists entering orbit.",
+                    "type": "milestone",
+                })
 
         return reports
 
@@ -632,6 +752,12 @@ class GameEngine:
                 ctx.add_event("construction", f"Cannot build {building_type_str}: no colony on {planet}.", source="agent")
             return
 
+        # Stage restriction check — can this colony build this type?
+        can_build, reason = can_build_building(building_type_str, target_colony)
+        if not can_build:
+            ctx.add_event("construction", reason, source="agent")
+            return
+
         # Look up build cost
         build_cost = BUILD_COSTS.get(building_type_str)
         build_turns = build_cost.build_turns if build_cost else 1
@@ -693,6 +819,8 @@ class GameEngine:
             target_colony["atmospheric_processors"] = target_colony.get("atmospheric_processors", 0) + 1
         elif building_type_str == "research_lab":
             target_colony["research_labs"] = target_colony.get("research_labs", 0) + 1
+        elif building_type_str == "habitat_module":
+            target_colony["habitat_modules"] = target_colony.get("habitat_modules", 0) + 1
 
         ctx.add_event("construction", f"Construction begun: {build_name} at {planet} (ETA: {build_turns} turns)", source="agent")
 
@@ -858,6 +986,12 @@ class GameEngine:
         """Generate a list of available actions for the current state."""
         actions = []
 
+        # Fleet status reminder
+        fleet = FleetStatus.from_dict(state.fleet) if isinstance(state.fleet, dict) else state.fleet
+        turns_left = max(0, fleet.arrival_turn - state.turn)
+        if fleet.status == "en_route" and turns_left <= 10 and turns_left > 0:
+            actions.append(f"🚢 Fleet arrives in {turns_left} turns! Build habitat modules!")
+
         # Early game (no colonies yet)
         if not state.colonies:
             planets = state.get_planets()
@@ -870,15 +1004,43 @@ class GameEngine:
                 actions.append(f"Establish colony on {p.designation} ({p.name}) [hab: {h:.0f}]")
         else:
             # Colony exists — can build infrastructure
-            # Show available building types with resource costs
-            for key, cost in BUILD_COSTS.items():
-                # Skip assembled systems (those need assembly bays)
-                if key in ("scout_node", "orbiter_node", "surface_node",
-                           "relay_node", "constructor_node"):
-                    continue
-                cost_parts = [f"{amt:.0f} {r.value}" for r, amt in cost.costs.items()]
-                cost_str = ", ".join(cost_parts) if cost_parts else "free"
-                actions.append(f"Build {key.replace('_', ' ')} at [colony] — cost: {cost_str} ({cost.build_turns}t)")
+            # Show available building types with resource costs and stage restrictions
+            for c_data in state.colonies:
+                colony_name = c_data.get("name", "?")
+                pop = c_data.get("population", 0)
+                stage = determine_stage(pop)
+                allowed = STAGE_BUILDING_UNLOCKS.get(stage, {}).get("allowed", set())
+
+                for key, cost in BUILD_COSTS.items():
+                    # Skip assembled systems (those need assembly bays)
+                    if key in ("scout_node", "orbiter_node", "surface_node",
+                               "relay_node", "constructor_node"):
+                        continue
+                    # Show stage restriction
+                    if key not in allowed:
+                        required = None
+                        for s, data in STAGE_BUILDING_UNLOCKS.items():
+                            if key in data["allowed"]:
+                                required = STAGE_NAMES[s]
+                                break
+                        if required:
+                            actions.append(f"🔒 {key.replace('_', ' ').title()} — requires {required} stage")
+                        continue
+                    cost_parts = [f"{amt:.0f} {r.value}" for r, amt in cost.costs.items()]
+                    cost_str = ", ".join(cost_parts) if cost_parts else "free"
+                    actions.append(f"Build {key.replace('_', ' ')} at {colony_name} — cost: {cost_str} ({cost.build_turns}t)")
+
+                # Habitat urgency
+                hab_cap = calculate_habitat_capacity(c_data.get("buildings", []))
+                if hab_cap == 0 and pop == 0:
+                    actions.append(f"🏠 Build habitat module at {colony_name} — settlers cannot arrive without housing!")
+                elif fleet.status == "en_route":
+                    deficit = fleet.total_colonists - sum(
+                        calculate_habitat_capacity(c.get("buildings", []))
+                        for c in state.colonies
+                    )
+                    if deficit > 0:
+                        actions.append(f"🏠 Housing deficit: {deficit:,} colonists without habitat. Build habitat modules!")
 
             # Drone deployment
             actions.append("Deploy surface probe to [planet]")
@@ -922,6 +1084,7 @@ def _planet_to_summary_dict(planet: Planet) -> dict:
 def _default_recipe_for_building(building_type: BuildingType) -> str:
     """Get a default recipe for a building type."""
     defaults = {
+        BuildingType.HABITAT_MODULE: "",
         BuildingType.MINE: "mine_iron",
         BuildingType.SMELTER: "smelt_iron",
         BuildingType.CHEMICAL_PROCESSOR: "process_carbon",

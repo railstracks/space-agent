@@ -174,6 +174,7 @@ def run_production(
 
     # Priority order for building types
     priority = {
+        "habitat_module": -1,  # Habitat provides capacity, runs first
         "solar_array": 0, "nuclear_reactor": 0, "geothermal_tap": 0,
         "mine": 1, "atmospheric_extractor": 1, "ice_drill": 1,
         "smelter": 2, "chemical_processor": 2, "electrolyzer": 2,
@@ -194,7 +195,7 @@ def run_production(
             b["turns_remaining"] = max(0, turns_left)
             if turns_left <= 0:
                 # Construction complete — auto-activate passive buildings
-                passive_kinds = {"solar_array", "nuclear_reactor", "geothermal_tap", "research_lab", "terraform_engine"}
+                passive_kinds = {"solar_array", "nuclear_reactor", "geothermal_tap", "research_lab", "terraform_engine", "habitat_module"}
                 if b.get("kind", "") in passive_kinds:
                     b["status"] = "active"
                     report.messages.append(f"{b.get('id', '?')} construction complete. Now active (passive building).")

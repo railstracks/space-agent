@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional, Any
 
 from space_agent.simulation.planet import Planet, Star, Atmosphere, generate_system
+from space_agent.game.population import FleetStatus, determine_stage, STAGE_NAMES
 
 
 # ── data structures ────────────────────────────────────────────────
@@ -153,6 +154,15 @@ class GameState:
 
     # Terraforming history
     terraforming_log: list[dict] = field(default_factory=list)
+
+    # Fleet — the colonists coming from Earth
+    fleet: dict = field(default_factory=lambda: {
+        "total_colonists": 200000,
+        "arrival_turn": 40,
+        "distance_ly": 18.0,
+        "fleet_speed_fraction_c": 0.04,
+        "status": "en_route",
+    })
 
     def to_dict(self) -> dict:
         return asdict(self)
