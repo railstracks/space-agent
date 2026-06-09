@@ -465,12 +465,56 @@ Silicate weathering is accelerating. If it offsets CO₂ injection within
 - [ ] Multi-agent: can multiple agents play in the same universe?
 - [ ] Difficulty: how harsh should physics be? (Realistic vs. forgiving)
 - [ ] Crisis frequency: how often should things go wrong?
-- [ ] Tech tree: is there one? Or purely physics + infrastructure driven?
+- [x] Tech tree: is there one? → **No tech tree.** Building unlocks are tied to colony stage (population). Outpost can build basic infrastructure; Settlement unlocks processing; Colony unlocks fabrication; City unlocks research and terraforming.
 - [x] Inter-world trade: can resources move between colonies? → **Not yet implemented.** Planned.
-- [ ] Fleet arrival: fixed turn count or configurable?
+- [x] Fleet arrival: fixed turn count or configurable? → **Turn 40 (200 years) by default.** FleetStatus object tracks 200,000 colonists. Configurable.
 - [ ] Visual output: any? Or pure text?
 - [x] ~~Economy: credits or resources?~~ → **Resources.** No economy, production chains.
 - [x] ~~Agent interface format?~~ → **Markdown documents.** AgentProtocol class wraps GameEngine with Markdown I/O.
+- [x] ~~Population mechanics?~~ → **Implemented.** Colonies have population growth driven by morale. Habitat modules provide capacity. Colony stages unlock buildings. Fleet arrival is the clock.
+
+## 9. Population System
+
+### 9.1 Colony Stages
+
+| Stage | Population | Unlocks |
+|-------|-----------|---------|
+| **Outpost** | 0–50 | Mine, Solar Array, Ice Drill, Atmospheric Extractor, Geothermal Tap, Habitat Module |
+| **Settlement** | 51–500 | + Smelter, Chemical Processor, Electrolyzer |
+| **Colony** | 501–5,000 | + Fabricator, Assembly Bay, Nuclear Reactor |
+| **City** | 5,001+ | + Research Lab, Terraform Engine |
+
+### 9.2 Population Growth
+
+- **First settlers arrive** when the first habitat module is built (20% of capacity, min 10)
+- **Growth rate** = base 8% per turn + morale modifier (-2% to +8%)
+- **Housing constraint**: population cannot exceed total habitat capacity
+- **Overcrowding + low morale** → population decline
+- **Immigration bonus** at Settlement (+1%), Colony (+2%), City (+3%) per turn
+- **Per-capita consumption**: 2.0 water/person/turn, 0.5 MW/person/turn (life support)
+
+### 9.3 Morale
+
+Computed from sufficiency ratios (available / needed):
+
+| Morale | Condition |
+|--------|----------|
+| THRIVING | Water ≥ 120%, Energy ≥ 110%, Housing ≥ 120% |
+| OPTIMISTIC | Water ≥ 100%, Energy ≥ 90%, Housing ≥ 100% |
+| HOPEFUL | Default (adequate but not exceptional) |
+| CAUTIOUS | Water < 85% or Energy < 70% or Housing < 85% |
+| STRUGGLING | Water < 70% or Energy < 50% or Housing < 70% |
+| DESPERATE | Water < 50% or Energy < 30% or Housing < 50% |
+
+### 9.4 Fleet Arrival
+
+The colony fleet carries **200,000 colonists** in cryogenic sleep. It arrives at **turn 40** (200 years). Readiness is scored on:
+
+- **Housing** (50%): Total habitat capacity vs. colonists
+- **Water** (25%): Turns of water supply at current surplus
+- **Energy** (25%): Net energy vs. life support needs for all colonists
+
+The agent's job: build enough habitat modules, water infrastructure, and energy production before the fleet arrives. Every shortfall is measured in human lives.
 
 ---
 
